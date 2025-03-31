@@ -31,9 +31,13 @@ export default class MyWorker extends WorkerEntrypoint<Env> {
     }
     
     try {
-      const response = await this.env.AI.run('@cf/black-forest-labs/flux-1-schnell', {
-        prompt,
-        steps,
+      const response = await this.env.AI.run('@cf/runwayml/stable-diffusion-v1-5-inpainting', {
+        prompt, // Text description of the image to generate
+        steps, // Number of diffusion steps (typically 20-50)
+        image: null, // Original image (base image)
+        mask: null, // Mask image indicating areas to inpaint
+        strength: 1.0, // Strength of the inpainting effect (0.0 to 1.0)
+        guidance: 7.5, // Classifier-free guidance scale
       });
       
       // Convert from base64 string
