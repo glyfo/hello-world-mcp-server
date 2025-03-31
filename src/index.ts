@@ -1,7 +1,6 @@
 import { WorkerEntrypoint } from 'cloudflare:workers'
 import { ProxyToSelf } from 'workers-mcp'
 
-
 // Define your environment interface
 interface Env {
   AI: {
@@ -20,44 +19,67 @@ export default class MyWorker extends WorkerEntrypoint<Env> {
   }
 
   /**
-   * Generate an image using the flux-1-schnell model.
+   * Generate an image using the Stable Diffusion inpainting model.
    * @param prompt {string} A text description of the image you want to generate.
    * @param steps {number} The number of diffusion steps; higher values can improve quality but take longer.
    */
-  async generateImage(prompt: string, steps: number): Promise<Response> {
+  async generateImage(prompt: string, steps: number = 40): Promise<Response> {
+    // Validate inputs
+    if (!prompt) {
+      return new Response('Prompt is required', { status: 400 });
+    }
+
+    // Ensure steps is within a reasonable range
+    steps = Math.min(Math.max(steps, 10), 50);
+
     // Make sure env.AI exists before trying to use it
-    if (!this.env || !this.env.AI) {
+    if (!this.env?.AI) {
       return new Response('AI binding not found in environment', { status: 500 });
     }
     
     try {
       const response = await this.env.AI.run('@cf/runwayml/stable-diffusion-v1-5-inpainting', {
-        prompt, // Text description of the image to generate
-        steps, // Number of diffusion steps (typically 20-50)
-        image: null, // Original image (base image)
-        mask: null, // Mask image indicating areas to inpaint
-        strength: 1.0, // Strength of the inpainting effect (0.0 to 1.0)
-        guidance: 7.5, // Classifier-free guidance scale
+        prompt, 
+        steps, 
+        image: null, 
+        mask: null, 
+        strength: 1.0, 
+        guidance: 7.5, 
       });
       
+      // Validate response
+      if (!response?.image) {
+        throw new Error('No image generated');
+      }
+
       // Convert from base64 string
       const binaryString = atob(response.image);
+      
       // Create byte representation
-      const img = Uint8Array.from(binaryString, (m) => m.codePointAt(0)!);
+      const img = Uint8Array.from(binaryString, (m) => {
+        const code = m.codePointAt(0);
+        if (code === undefined) {
+          throw new Error('Invalid character in image data');
+        }
+        return code;
+      });
       
       return new Response(img, {
         headers: {
-          'Content-Type': 'image/jpeg',
+          'Content-Type': 'image/png', // or 'image/jpeg' depending on output
+          'Cache-Control': 'no-cache', // Prevent caching of generated images
         },
       });
-    } catch (error:any) {
+    } catch (error: any) {
       console.error('Error generating image:', error);
-      return new Response(`Error generating image: ${error.message}`, { status: 500 });
+      return new Response(`Error generating image: ${error.message}`, { 
+        status: error instanceof TypeError ? 400 : 500 
+      });
     }
   }
 
   /**
-   * @ignore
+   * Handle incoming HTTP requests
    */
   async fetch(request: Request): Promise<Response> {
     return new ProxyToSelf(this).fetch(request)
