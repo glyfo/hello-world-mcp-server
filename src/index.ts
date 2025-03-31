@@ -1,10 +1,11 @@
 import { WorkerEntrypoint } from 'cloudflare:workers'
 import { ProxyToSelf } from 'workers-mcp'
 
-// Define the Env interface to include the AI property
+
+// Define your environment interface
 interface Env {
   AI: {
-    run(model: string, options: any): Promise<any>;
+    run: (model: string, options: any) => Promise<{ image: string }>
   }
 }
 
@@ -18,13 +19,18 @@ export default class MyWorker extends WorkerEntrypoint<Env> {
     return `Hello from an MCP Worker, ${name}!`
   }
 
-    /**
+  /**
    * Generate an image using the flux-1-schnell model.
    * @param prompt {string} A text description of the image you want to generate.
    * @param steps {number} The number of diffusion steps; higher values can improve quality but take longer.
-   * @return {Promise<Response>} A Response object containing the generated image.
    */
-    async generateImage(prompt: string, steps: number): Promise<Response> {
+  async generateImage(prompt: string, steps: number): Promise<Response> {
+    // Make sure env.AI exists before trying to use it
+    if (!this.env || !this.env.AI) {
+      return new Response('AI binding not found in environment', { status: 500 });
+    }
+    
+    try {
       const response = await this.env.AI.run('@cf/black-forest-labs/flux-1-schnell', {
         prompt,
         steps,
@@ -40,11 +46,15 @@ export default class MyWorker extends WorkerEntrypoint<Env> {
           'Content-Type': 'image/jpeg',
         },
       });
+    } catch (error:any) {
+      console.error('Error generating image:', error);
+      return new Response(`Error generating image: ${error.message}`, { status: 500 });
     }
+  }
 
   /**
    * @ignore
-   **/
+   */
   async fetch(request: Request): Promise<Response> {
     return new ProxyToSelf(this).fetch(request)
   }
