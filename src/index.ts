@@ -1,100 +1,119 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { ProxyToSelf } from 'workers-mcp';
 
-// Define your environment interface
+// Define your environment interface with proper typing
 interface Env {
   AI: {
-    run: (model: string, options: any) => Promise<{ image: string } | { response: string }>
+    run: (model: string, options: any) => Promise<any>
   }
 }
 
-export default class MyWorker extends WorkerEntrypoint<Env> {
-  /**
-   * A warm, friendly greeting from your new Workers MCP server.
-   * @param name {string} the name of the person we are greeting.
-   * @return {string} the contents of our greeting.
-   */
-  sayHello(name: string): string {
-    return `Hello from an MCP Worker, ${name}!`;
-  }
+export default class ImageEnhancementWorker extends WorkerEntrypoint<Env> {
 
   /**
    * Generate an image using the flux-1-schnell model.
    * @param prompt {string} A text description of the image you want to generate.
    * @param steps {number} The number of diffusion steps; higher values can improve quality but take longer.
-   * @return {Promise<Response>} Response containing the generated image or error message.
+   * @returns {Promise<Response>} Response containing the generated image or an error
    */
   async generateImage(prompt: string, steps: number = 30): Promise<Response> {
-    // Make sure env.AI exists before trying to use it
-    if (!this.env || !this.env.AI) {
-      return new Response('AI binding not found in environment', { status: 500 });
+    // Validate environment and input parameters
+    if (!this.env?.AI) {
+      return new Response('AI binding not configured', { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (!prompt || prompt.trim().length === 0) {
+      return new Response(JSON.stringify({ error: 'Prompt cannot be empty' }), { 
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
     
     try {
       // Enhance the prompt for better image quality
-      const enhancedPrompt = await this.enhanceImagePrompt(prompt);
+      const enhancedPrompt = await this.enhancePrompt(prompt);
       
       // Use the enhanced prompt in the API call
       const response = await this.env.AI.run('@cf/black-forest-labs/flux-1-schnell', {
         prompt: enhancedPrompt,
-        steps,
-      }) as { image: string };
+        steps: Math.min(Math.max(1, steps), 100), // Ensure steps is between 1 and 100
+      });
       
-      // Convert from base64 string
+      // Handle missing image in response
+      if (!response.image) {
+        throw new Error('No image data in response');
+      }
+      
+      // Convert from base64 string to binary for response
       const binaryString = atob(response.image);
-      // Create byte representation
-      const img = Uint8Array.from(binaryString, (m) => m.codePointAt(0)!);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
       
-      return new Response(img, {
+      return new Response(bytes, {
         headers: {
           'Content-Type': 'image/jpeg',
+          'Cache-Control': 'public, max-age=86400', // Cache for 24 hours
         },
       });
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error generating image:', error);
-      return new Response(`Error generating image: ${error.message}`, { status: 500 });
+      
+      // Structured error response
+      return new Response(JSON.stringify({ 
+        error: 'Image generation failed',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      }), { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
   }
 
   /**
-   * Enhance the image prompt to produce better quality images
-   * @param basePrompt The user's original prompt
-   * @returns Enhanced prompt with quality improvements
+   * Enhance the  prompt to produce better prompt quality 
+   * @param basePrompt {string} The user's original prompt
+   * @returns {Promise<string>} Enhanced prompt with quality improvements
    */
-  async enhanceImagePrompt(basePrompt: string): Promise<string> {
-    const promptEnhancementSystem = `You are an expert image prompt engineer. 
-Your task is to enhance image prompts for AI image generation.
-Keep the original intent but add details for higher quality results.
-Be concise and focused, adding at most 2-3 quality terms.
-If the prompt is already detailed (>100 chars or has quality terms), keep it as is.`;
+  async enhancePrompt(basePrompt: string): Promise<string> {
+    const systemPrompt = `You are an expert image prompt engineer specializing in photorealistic detail. 
+    Your task is to enhance image prompts for AI image generation with 150 character as a minimum.
+    Include specific photorealistic details like texture, lighting conditions, perspective, depth of field, and atmospheric elements.
+    Specify high-resolution rendering terms (8K, hyperdetailed), professional photography techniques (RAW, sharp focus), and realistic lighting (volumetric, golden hour, studio lighting).
+    Keep the original intent but strategically add quality-enhancing elements.`;
 
+    
+    const sanitizedPrompt = basePrompt.trim();
+    
     try {
-      // For very simple prompts, use the quick enhancement without AI
-      if (basePrompt.trim().length < 30 && !/high resolution|detailed|professional|4K/i.test(basePrompt)) {
-        return `${basePrompt.trim()}, high resolution, detailed, professional quality`;
-      }
+  
       
-      // For more complex prompts, use AI to enhance them intelligently
-      const { response: enhancedPrompt } = await this.env.AI.run(
+      // For medium complexity prompts, use AI to enhance them intelligently
+      const response = await this.env.AI.run(
         '@cf/meta/llama-4-scout-17b-16e-instruct',
         {
           messages: [
-            { role: "system", content: promptEnhancementSystem },
-            { role: "user", content: `Enhance this image prompt: "${basePrompt.trim()}"` },
+            { role: "system", content: systemPrompt },
+            { role: "user", content: `Enhance this image prompt: "${sanitizedPrompt}"` },
           ],
           stream: false,
           max_tokens: 150 // Limit token usage for efficiency
         }
-      ) as { response: string };
+      );
       
-      return enhancedPrompt.trim();
+      return response.response && response.response.trim() || sanitizedPrompt;
     } catch (error) {
-      // Fallback to basic enhancement if AI enhancement fails
+      // Log error details for debugging
       console.error('Error enhancing prompt with AI:', error);
-      return basePrompt.trim().length > 100 || 
-             /high resolution|detailed|professional|4K/i.test(basePrompt) 
-             ? basePrompt.trim() 
-             : `${basePrompt.trim()}, high resolution, detailed, professional quality`;
+      
+      // Fallback to basic enhancement if AI enhancement fails
+      return hasQualityTerms ? 
+        sanitizedPrompt : 
+        `${sanitizedPrompt}, high resolution, detailed, professional quality`;
     }
   }
 
@@ -102,6 +121,6 @@ If the prompt is already detailed (>100 chars or has quality terms), keep it as 
    * @ignore
    */
   async fetch(request: Request): Promise<Response> {
-    return new ProxyToSelf(this).fetch(request);
+    return new ProxyToSelf(this).fetch(request)
   }
 }
