@@ -109,11 +109,6 @@ export default class ImageEnhancementWorker extends WorkerEntrypoint<Env> {
     } catch (error) {
       // Log error details for debugging
       console.error('Error enhancing prompt with AI:', error);
-      
-      // Fallback to basic enhancement if AI enhancement fails
-      return hasQualityTerms ? 
-        sanitizedPrompt : 
-        `${sanitizedPrompt}, high resolution, detailed, professional quality`;
     }
   }
 
