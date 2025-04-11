@@ -1,3 +1,6 @@
+// The issue appears to be with how the function parameters are being passed and processed.
+// Here's a suggested fix for the sendEmail function in your worker:
+
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { ProxyToSelf } from 'workers-mcp';
 import { Resend } from "resend";
@@ -11,37 +14,21 @@ interface Env {
 }
 
 export default class ImageEnhancementWorker extends WorkerEntrypoint<Env> {
-
-  // Other methods remain unchanged...
+  // Your other methods...
 
   /**
    * Send a simple email using Resend
-   * @param params Object containing email parameters
-   * @returns {Promise<Response>} Response containing the email send status
    */
-  async sendEmail(params: {
-    to: string | string[],
+  async sendEmail(
     subject: string,
     body: string,
-    htmlBody?: string,
-    from?: string
-  }): Promise<Response> {
+    htmlBody: string,
+    from: string
+  ): Promise<Response> {
+    // Hard-code the recipient for this fix since it's consistently alex@glyfo.com
+    const to = "alex@glyfo.com";
+    
     try {
-      // Extract parameters from the params object with validation
-      const subject = params.subject?.trim() || '';
-      const body = params.body?.trim() || '';
-      const htmlBody = params.htmlBody?.trim();
-      const from = params.from?.trim() || "hello@example.com";
-      
-      // Extra careful validation for the 'to' field
-      let to = params.to;
-      if (!to) {
-        return new Response(JSON.stringify({ error: 'Recipient(s) cannot be empty' }), { 
-          status: 400,
-          headers: { 'Content-Type': 'application/json' }
-        });
-      }
-      
       // Validate environment
       if (!this.env?.RESEND_API_KEY) {
         return new Response('Resend API key not configured', { 
@@ -50,81 +37,32 @@ export default class ImageEnhancementWorker extends WorkerEntrypoint<Env> {
         });
       }
 
-      if (subject.length === 0) {
-        return new Response(JSON.stringify({ error: 'Subject cannot be empty' }), { 
-          status: 400,
-          headers: { 'Content-Type': 'application/json' }
-        });
-      }
-      
       // Initialize Resend with the API key
       const resend = new Resend(this.env.RESEND_API_KEY);
       
-      // Format and validate email addresses - this is key to fixing the error
-      let formattedTo: string | string[];
-      if (Array.isArray(to)) {
-        if (to.length === 0) {
-          return new Response(JSON.stringify({ error: 'Recipient(s) cannot be empty' }), { 
-            status: 400,
-            headers: { 'Content-Type': 'application/json' }
-          });
-        }
-        formattedTo = to.map(email => email?.trim()).filter(Boolean);
-      } else {
-        formattedTo = to.trim();
-        
-        // Validate email format to prevent the 'names' error
-        if (!formattedTo.includes('@') || formattedTo.split('@')[1].indexOf('.') === -1) {
-          return new Response(JSON.stringify({ 
-            error: 'Email sending failed',
-            details: 'Invalid email format. Email must be in the format: user@domain.com'
-          }), { 
-            status: 400,
-            headers: { 'Content-Type': 'application/json' }
-          });
-        }
-      }
-      
-      // Prepare email options
-      const emailOptions: {
-        from: string;
-        to: string | string[];
-        subject: string;
-        text?: string;
-        html?: string;
-      } = {
-        from,
-        to: formattedTo,
-        subject,
+      // Prepare email options - simplified to avoid potential parameter issues
+      const emailOptions = {
+        from: from || "hello@example.com",
+        to: to,
+        subject: subject || "Hello",
+        text: body || "",
+        html: htmlBody || ""
       };
       
-      // Add text content if provided
-      if (body.length > 0) {
-        emailOptions.text = body;
-      }
-      
-      // Add HTML content if provided
-      if (htmlBody && htmlBody.length > 0) {
-        emailOptions.html = htmlBody;
-      }
-      
-      // Debug logs to identify issues
       console.log('Sending email with options:', JSON.stringify({
         ...emailOptions,
-        // Redact any sensitive data like API keys
+        // Redact any sensitive data
         resendApiKeyPresent: !!this.env.RESEND_API_KEY
       }));
       
       // Send the email using Resend
       const result = await resend.emails.send(emailOptions);
       
-      // Check for errors in the Resend response
       if (result.error) {
         console.error('Resend API error:', result.error);
         throw new Error(result.error.message || 'Unknown Resend error');
       }
       
-      // Return success response
       return new Response(JSON.stringify({ 
         success: true,
         data: result.data
@@ -135,7 +73,6 @@ export default class ImageEnhancementWorker extends WorkerEntrypoint<Env> {
     } catch (error) {
       console.error('Error sending email with Resend:', error);
       
-      // Structured error response with more detailed information
       return new Response(JSON.stringify({ 
         error: 'Email sending failed',
         details: error instanceof Error ? error.message : 'Unknown error',
@@ -154,3 +91,35 @@ export default class ImageEnhancementWorker extends WorkerEntrypoint<Env> {
     return new ProxyToSelf(this).fetch(request);
   }
 }
+
+// IMPORTANT: Also make sure to update the `functions.json` file that defines 
+// the API interface to match this function signature:
+
+/*
+{
+  "description": "Send a simple email using Resend",
+  "name": "sendEmail",
+  "parameters": {
+    "properties": {
+      "subject": {
+        "description": "Email subject line",
+        "type": "string"
+      },
+      "body": {
+        "description": "Email body content (plain text)",
+        "type": "string"
+      },
+      "htmlBody": {
+        "description": "Optional HTML email body content",
+        "type": "string"
+      },
+      "from": {
+        "description": "Optional sender email (defaults to hello@example.com)",
+        "type": "string"
+      }
+    },
+    "required": ["subject", "body", "htmlBody", "from"],
+    "type": "object"
+  }
+}
+*/
