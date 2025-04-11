@@ -26,39 +26,64 @@ export default class ImageEnhancementWorker extends WorkerEntrypoint<Env> {
     htmlBody?: string,
     from?: string
   }): Promise<Response> {
-    // Extract parameters from the params object
-    const { to, subject, body, htmlBody, from = "hello@example.com" } = params;
-    
-    // Validate environment and input parameters
-    if (!this.env?.RESEND_API_KEY) {
-      return new Response('Resend API key not configured', { 
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    if (!to || (Array.isArray(to) && to.length === 0)) {
-      return new Response(JSON.stringify({ error: 'Recipient(s) cannot be empty' }), { 
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    if (!subject || subject.trim().length === 0) {
-      return new Response(JSON.stringify({ error: 'Subject cannot be empty' }), { 
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-    
     try {
+      // Extract parameters from the params object with validation
+      const subject = params.subject?.trim() || '';
+      const body = params.body?.trim() || '';
+      const htmlBody = params.htmlBody?.trim();
+      const from = params.from?.trim() || "hello@example.com";
+      
+      // Extra careful validation for the 'to' field
+      let to = params.to;
+      if (!to) {
+        return new Response(JSON.stringify({ error: 'Recipient(s) cannot be empty' }), { 
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      
+      // Validate environment
+      if (!this.env?.RESEND_API_KEY) {
+        return new Response('Resend API key not configured', { 
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (subject.length === 0) {
+        return new Response(JSON.stringify({ error: 'Subject cannot be empty' }), { 
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      
       // Initialize Resend with the API key
       const resend = new Resend(this.env.RESEND_API_KEY);
       
-      // Ensure the email is correctly formatted
-      const formattedTo = Array.isArray(to) 
-        ? to.map(email => email.trim()) 
-        : to.trim();
+      // Format and validate email addresses - this is key to fixing the error
+      let formattedTo: string | string[];
+      if (Array.isArray(to)) {
+        if (to.length === 0) {
+          return new Response(JSON.stringify({ error: 'Recipient(s) cannot be empty' }), { 
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        formattedTo = to.map(email => email?.trim()).filter(Boolean);
+      } else {
+        formattedTo = to.trim();
+        
+        // Validate email format to prevent the 'names' error
+        if (!formattedTo.includes('@') || formattedTo.split('@')[1].indexOf('.') === -1) {
+          return new Response(JSON.stringify({ 
+            error: 'Email sending failed',
+            details: 'Invalid email format. Email must be in the format: user@domain.com'
+          }), { 
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
       
       // Prepare email options
       const emailOptions: {
@@ -68,33 +93,41 @@ export default class ImageEnhancementWorker extends WorkerEntrypoint<Env> {
         text?: string;
         html?: string;
       } = {
-        from: from.trim(),
+        from,
         to: formattedTo,
-        subject: subject.trim(),
+        subject,
       };
       
       // Add text content if provided
-      if (body && body.trim().length > 0) {
-        emailOptions.text = body.trim();
+      if (body.length > 0) {
+        emailOptions.text = body;
       }
       
-      // Add HTML content if provided (prioritize this over plain text if both are given)
-      if (htmlBody && htmlBody.trim().length > 0) {
-        emailOptions.html = htmlBody.trim();
+      // Add HTML content if provided
+      if (htmlBody && htmlBody.length > 0) {
+        emailOptions.html = htmlBody;
       }
+      
+      // Debug logs to identify issues
+      console.log('Sending email with options:', JSON.stringify({
+        ...emailOptions,
+        // Redact any sensitive data like API keys
+        resendApiKeyPresent: !!this.env.RESEND_API_KEY
+      }));
       
       // Send the email using Resend
-      const { data, error } = await resend.emails.send(emailOptions);
+      const result = await resend.emails.send(emailOptions);
       
-      // Handle error from Resend
-      if (error) {
-        throw new Error(error.message || 'Unknown Resend error');
+      // Check for errors in the Resend response
+      if (result.error) {
+        console.error('Resend API error:', result.error);
+        throw new Error(result.error.message || 'Unknown Resend error');
       }
       
       // Return success response
       return new Response(JSON.stringify({ 
         success: true,
-        data: data
+        data: result.data
       }), { 
         status: 200,
         headers: { 'Content-Type': 'application/json' }
@@ -102,10 +135,11 @@ export default class ImageEnhancementWorker extends WorkerEntrypoint<Env> {
     } catch (error) {
       console.error('Error sending email with Resend:', error);
       
-      // Structured error response
+      // Structured error response with more detailed information
       return new Response(JSON.stringify({ 
         error: 'Email sending failed',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
       }), { 
         status: 500,
         headers: { 'Content-Type': 'application/json' }
