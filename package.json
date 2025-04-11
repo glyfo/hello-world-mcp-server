@@ -17,6 +17,7 @@
     "wrangler": "^4.8.0"
   },
   "dependencies": {
+    "resend": "^4.2.0",
     "workers-mcp": "^0.0.13"
   }
 }

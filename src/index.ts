@@ -1,12 +1,16 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { ProxyToSelf } from 'workers-mcp';
+import { Resend } from "resend";
 
 // Define your environment interface with proper typing
 interface Env {
   AI: {
     run: (model: string, options: any) => Promise<any>
-  }
+  },
+  RESEND_API_KEY: string
 }
+
+
 
 export default class ImageEnhancementWorker extends WorkerEntrypoint<Env> {
 
@@ -111,6 +115,101 @@ export default class ImageEnhancementWorker extends WorkerEntrypoint<Env> {
       console.error('Error enhancing prompt with AI:', error);
     }
   }
+
+    /**
+   * Send a simple email using Resend
+   * @param to {string | string[]} Email recipient(s)
+   * @param subject {string} Email subject line
+   * @param body {string} Email body content (plain text)
+   * @param htmlBody {string} Optional HTML email body content
+   * @param from {string} Optional sender email (defaults to hello@example.com)
+   * @returns {Promise<Response>} Response containing the email send status
+   */
+    async sendEmail(
+      to: string | string[], 
+      subject: string, 
+      body: string, 
+      htmlBody?: string,
+      from: string = "hello@example.com"
+    ): Promise<Response> {
+      // Validate environment and input parameters
+      if (!this.env?.RESEND_API_KEY) {
+        return new Response('Resend API key not configured', { 
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+  
+      if (!to || (Array.isArray(to) && to.length === 0)) {
+        return new Response(JSON.stringify({ error: 'Recipient(s) cannot be empty' }), { 
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+  
+      if (!subject || subject.trim().length === 0) {
+        return new Response(JSON.stringify({ error: 'Subject cannot be empty' }), { 
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      
+      try {
+        // Initialize Resend with the API key
+        const resend = new Resend(this.env.RESEND_API_KEY);
+        
+        // Prepare email options
+        const emailOptions: {
+          from: string;
+          to: string | string[];
+          subject: string;
+          text?: string;
+          html?: string;
+        } = {
+          from: from,
+          to: to,
+          subject: subject,
+        };
+        
+        // Add text content if provided
+        if (body && body.trim().length > 0) {
+          emailOptions.text = body;
+        }
+        
+        // Add HTML content if provided (prioritize this over plain text if both are given)
+        if (htmlBody && htmlBody.trim().length > 0) {
+          emailOptions.html = htmlBody;
+        }
+        
+        // Send the email using Resend
+        const { data, error } = await resend.emails.send(emailOptions);
+        
+        // Handle error from Resend
+        if (error) {
+          throw new Error(error.message || 'Unknown Resend error');
+        }
+        
+        // Return success response
+        return new Response(JSON.stringify({ 
+          success: true,
+          data: data
+        }), { 
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        console.error('Error sending email with Resend:', error);
+        
+        // Structured error response
+        return new Response(JSON.stringify({ 
+          error: 'Email sending failed',
+          details: error instanceof Error ? error.message : 'Unknown error'
+        }), { 
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
 
   /**
    * @ignore
