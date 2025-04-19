@@ -1,6 +1,3 @@
-// The issue appears to be with how the function parameters are being passed and processed.
-// Here's a suggested fix for the sendEmail function in your worker:
-
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { ProxyToSelf } from 'workers-mcp';
 import { Resend } from "resend";
@@ -13,25 +10,30 @@ interface Env {
   RESEND_API_KEY: string
 }
 
-export default class ImageEnhancementWorker extends WorkerEntrypoint<Env> {
-  // Your other methods...
+// Define email data interface for type safety
+interface EmailData {
+  subject: string;
+  body: string;
+  htmlBody: string;
+  from: string;
+  to?: string; // Made optional since we have a default
+}
 
+export default class ImageEnhancementWorker extends WorkerEntrypoint<Env> {
   /**
    * Send a simple email using Resend
    */
-  async sendEmail(
-    subject: string,
-    body: string,
-    htmlBody: string,
-    from: string
-  ): Promise<Response> {
-    // Hard-code the recipient for this fix since it's consistently alex@glyfo.com
-    const to = "alex@glyfo.com";
+  async sendEmail(emailData: EmailData): Promise<Response> {
+    // Default recipient if not provided
+    const to = emailData.to || "alex@glyfo.com";
     
     try {
       // Validate environment
       if (!this.env?.RESEND_API_KEY) {
-        return new Response('Resend API key not configured', { 
+        return new Response(JSON.stringify({
+          error: 'Configuration error',
+          message: 'Resend API key not configured'
+        }), { 
           status: 500,
           headers: { 'Content-Type': 'application/json' }
         });
@@ -40,32 +42,41 @@ export default class ImageEnhancementWorker extends WorkerEntrypoint<Env> {
       // Initialize Resend with the API key
       const resend = new Resend(this.env.RESEND_API_KEY);
       
-      // Prepare email options - simplified to avoid potential parameter issues
+      // Prepare email options with defaults for any missing fields
       const emailOptions = {
-        from: from || "hello@example.com",
-        to: to,
-        subject: subject || "Hello",
-        text: body || "",
-        html: htmlBody || ""
+        from: emailData.from || "noreply@send.glyfo.com",
+        to,
+        subject: emailData.subject || "No Subject",
+        text: emailData.body || "",
+        html: emailData.htmlBody || ""
       };
       
       console.log('Sending email with options:', JSON.stringify({
-        ...emailOptions,
-        // Redact any sensitive data
-        resendApiKeyPresent: !!this.env.RESEND_API_KEY
+        to: emailOptions.to,
+        from: emailOptions.from,
+        subject: emailOptions.subject,
+        // Don't log full body content for privacy
+        textLength: emailOptions.text.length,
+        htmlLength: emailOptions.html.length
       }));
       
       // Send the email using Resend
-      const result = await resend.emails.send(emailOptions);
+      const { data, error } = await resend.emails.send(emailOptions);
       
-      if (result.error) {
-        console.error('Resend API error:', result.error);
-        throw new Error(result.error.message || 'Unknown Resend error');
+      if (error) {
+        console.error('Resend API error:', error);
+        return new Response(JSON.stringify({ 
+          success: false,
+          error: error.message || 'Unknown Resend error'
+        }), { 
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
       }
       
       return new Response(JSON.stringify({ 
         success: true,
-        data: result.data
+        data
       }), { 
         status: 200,
         headers: { 'Content-Type': 'application/json' }
@@ -74,9 +85,9 @@ export default class ImageEnhancementWorker extends WorkerEntrypoint<Env> {
       console.error('Error sending email with Resend:', error);
       
       return new Response(JSON.stringify({ 
+        success: false,
         error: 'Email sending failed',
-        details: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
+        details: error instanceof Error ? error.message : 'Unknown error'
       }), { 
         status: 500,
         headers: { 'Content-Type': 'application/json' }
@@ -85,41 +96,9 @@ export default class ImageEnhancementWorker extends WorkerEntrypoint<Env> {
   }
 
   /**
-   * @ignore
+   * Handle the fetch request using MCP
    */
   async fetch(request: Request): Promise<Response> {
     return new ProxyToSelf(this).fetch(request);
   }
 }
-
-// IMPORTANT: Also make sure to update the `functions.json` file that defines 
-// the API interface to match this function signature:
-
-/*
-{
-  "description": "Send a simple email using Resend",
-  "name": "sendEmail",
-  "parameters": {
-    "properties": {
-      "subject": {
-        "description": "Email subject line",
-        "type": "string"
-      },
-      "body": {
-        "description": "Email body content (plain text)",
-        "type": "string"
-      },
-      "htmlBody": {
-        "description": "Optional HTML email body content",
-        "type": "string"
-      },
-      "from": {
-        "description": "Optional sender email (defaults to hello@example.com)",
-        "type": "string"
-      }
-    },
-    "required": ["subject", "body", "htmlBody", "from"],
-    "type": "object"
-  }
-}
-*/
