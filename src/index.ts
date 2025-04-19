@@ -23,10 +23,16 @@ export default class EmailWorker extends WorkerEntrypoint<Env> {
     from?: string;
   } = {}): Promise<Response> {
     try {
-      // Check for API key
+      // Log environment variables to debug
+      console.log('Environment keys:', Object.keys(this.env || {}));
+      
+      // Check for API key with more detailed logging
       if (!this.env?.RESEND_API_KEY) {
+        console.error('API key missing in environment');
         return this.errorResponse('Resend API key not configured', 500);
       }
+      
+      console.log('API key found, length:', this.env.RESEND_API_KEY.length);
 
       // Set defaults and validate required fields
       const to = params.to || "alex@glyfo.com";
@@ -46,7 +52,10 @@ export default class EmailWorker extends WorkerEntrypoint<Env> {
         html: params.html || ""
       };
       
-      console.log('Sending email to:', to);
+      console.log('Sending email with options:', JSON.stringify({
+        ...emailOptions,
+        apiKeyPresent: !!this.env.RESEND_API_KEY
+      }));
       
       // Send email
       const { data, error } = await resend.emails.send(emailOptions);
@@ -56,17 +65,17 @@ export default class EmailWorker extends WorkerEntrypoint<Env> {
         return this.errorResponse(error.message || 'Email sending failed', 400);
       }
       
-      return new Response(JSON.stringify({ 
+      return new Response(JSON.stringify({
         success: true,
         data
-      }), { 
+      }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
       });
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Error sending email:', error);
       return this.errorResponse(
-        error instanceof Error ? error.message : 'Unknown error', 
+        error instanceof Error ? error.message : 'Unknown error',
         500
       );
     }
@@ -77,7 +86,7 @@ export default class EmailWorker extends WorkerEntrypoint<Env> {
     return new Response(JSON.stringify({
       success: false,
       error: message
-    }), { 
+    }), {
       status,
       headers: { 'Content-Type': 'application/json' }
     });
