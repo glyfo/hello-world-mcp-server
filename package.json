@@ -1,23 +1,39 @@
 {
-  "name": "hello-world-mcp-server",
-  "version": "0.0.0",
+  "name": "mcp-email-server",
+  "version": "0.1.0",
   "private": true,
+  "description": "MCP server with email sending capabilities using Resend",
   "scripts": {
-    "deploy": "workers-mcp docgen src/index.ts && wrangler deploy",
     "dev": "wrangler dev",
     "start": "wrangler dev",
-    "test": "vitest",
-    "cf-typegen": "wrangler types"
-  },
-  "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.8.12",
-    "@cloudflare/workers-types": "^4.20250407.0",
-    "typescript": "^5.8.3",
-    "vitest": "~3.0.9",
-    "wrangler": "^4.8.0"
+    "deploy": "wrangler deploy",
+    "deploy:prod": "wrangler deploy --env production",
+    "build": "wrangler build",
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --fix .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "cf-typegen": "wrangler types",
+    "update-deps": "pnpm update --latest",
+    "prepare": "husky install"
   },
   "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^0.0.3",
+    "@modelcontextprotocol/sdk": "^1.7.0",
+    "agents": "^0.0.75",
+    "hono": "^4.7.4",
     "resend": "^4.2.0",
-    "workers-mcp": "^0.0.13"
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.5.3",
+    "@types/node": "^22.15.2",
+    "husky": "^9.0.11",
+    "prettier": "^3.2.5",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2",
+    "wrangler": "^4.8.0"
   }
 }
