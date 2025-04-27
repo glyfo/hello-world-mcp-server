@@ -52,12 +52,19 @@ export class MyMCP extends McpAgent<Bindings, State, Props> {
             };
           }
           
+          // Fix: Add null check for data before accessing data.id
+          if (!data) {
+            return {
+              content: [{ type: "text", text: `Email sent but no ID was returned` }],
+            };
+          }
+          
           return {
             content: [{ type: "text", text: `Email sent successfully! Email ID: ${data.id}` }],
           };
         } catch (err) {
           return {
-            content: [{ type: "text", text: `Error sending email: ${err.message}` }],
+            content: [{ type: "text", text: `Error sending email: ${err instanceof Error ? err.message : String(err)}` }],
           };
         }
       }
