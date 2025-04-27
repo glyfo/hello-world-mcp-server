@@ -2,9 +2,18 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "hello-world-mcp-server",
 	"main": "src/index.ts",
-	"compatibility_date": "2025-03-27",
+	"compatibility_date": "2025-03-10",
+	"compatibility_flags": ["nodejs_compat"],
 	"observability": {
 		"enabled": true
+	},
+	"durable_objects": {
+		"bindings": [
+			{
+				"class_name": "MyMCP",
+				"name": "MCP_OBJECT"
+			}
+		]
 	},
 	"ai": {
 		"binding": "AI"
