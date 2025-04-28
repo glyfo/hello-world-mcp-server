@@ -4,25 +4,39 @@ import { z } from "zod";
 import { Hono } from "hono";
 import { Resend } from "resend";
 
+// Environment interface with necessary bindings
+export interface Env {
+  MCP_OBJECT: DurableObjectNamespace;
+  AI: any; // AI binding from your wrangler.toml
+  RESEND_API_KEY: string;
+}
+
 type Bindings = Env & {
   RESEND_API_KEY: string;
 };
 
-const app = new Hono<{
-  Bindings: Bindings;
-}>();
-
+// Props passed to the Durable Object
 type Props = {
   bearerToken: string;
 };
 
+// State maintained by the Durable Object
 type State = null;
 
+// Define the Durable Object class that will handle MCP functionality
 export class MyMCP extends McpAgent<Bindings, State, Props> {
   server = new McpServer({
     name: "Demo",
     version: "1.0.0",
   });
+  
+  // This constructor is required for Durable Objects
+  constructor(state: DurableObjectState, env: Bindings, ctx: ExecutionContext) {
+    super(state, env, ctx);
+    
+    // Initialize your state if needed
+    // this.state will be available from McpAgent
+  }
 
   async init() {
     // Email sending tool only
@@ -72,6 +86,11 @@ export class MyMCP extends McpAgent<Bindings, State, Props> {
   }
 }
 
+// Create Hono app for handling HTTP requests
+const app = new Hono<{
+  Bindings: Bindings;
+}>();
+
 // Render a basic homepage placeholder
 app.get("/", async (c) => {
   return c.html(`
@@ -91,6 +110,7 @@ app.get("/", async (c) => {
   `);
 });
 
+// Mount the MCP agent at the SSE endpoint with auth check
 app.mount("/", (req, env, ctx) => {
   // Check authorization header
   const authHeader = req.headers.get("authorization");
@@ -105,4 +125,9 @@ app.mount("/", (req, env, ctx) => {
   return MyMCP.mount("/sse").fetch(req, env, ctx);
 });
 
-export default app;
+// Export the Durable Object class and app for Cloudflare Workers
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return app.fetch(request, env, ctx);
+  }
+};

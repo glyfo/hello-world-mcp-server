@@ -5,17 +5,23 @@
 	"compatibility_date": "2025-03-10",
 	"compatibility_flags": ["nodejs_compat"],
 	"observability": {
-		"enabled": true
+	  "enabled": true
 	},
 	"durable_objects": {
-		"bindings": [
-			{
-				"class_name": "MyMCP",
-				"name": "MCP_OBJECT"
-			}
-		]
+	  "bindings": [
+		{
+		  "class_name": "MyMCP",
+		  "name": "MCP_OBJECT"
+		}
+	  ]
 	},
+	"migrations": [
+	  {
+		"tag": "v1",
+		"new_sqlite_classes": ["MyMCP"]
+	  }
+	],
 	"ai": {
-		"binding": "AI"
+	  "binding": "AI"
 	}
-}
+  }
