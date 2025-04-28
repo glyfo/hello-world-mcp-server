@@ -71,6 +71,7 @@ export class MyMCP extends McpAgent<Bindings, State, Props> {
         
         try {
           // Create Resend instance
+          logger.debug("RESEND_API_KEY:"+this.env.RESEND_API_KEY);
           const resend = new Resend(this.env.RESEND_API_KEY);
           logger.debug("Resend instance created");
           
