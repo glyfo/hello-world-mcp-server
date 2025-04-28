@@ -46,13 +46,21 @@ export class MyMCP extends McpAgent<Bindings, State, Props> {
     version: "1.0.0",
   });
   
-  // This constructor is required for Durable Objects
   constructor(state: DurableObjectState, env: Bindings, ctx: ExecutionContext) {
     super(state, env, ctx);
+    
+    // More robust check for API key existence
+    const hasResendKey = typeof env.RESEND_API_KEY === 'string' && env.RESEND_API_KEY.trim() !== '';
+    
     logger.info("MyMCP Durable Object constructed", { 
       objectId: state.id.toString(),
-      hasResendKey: !!env.RESEND_API_KEY
+      hasResendKey
     });
+    
+    // Optional: Add validation and error handling
+    if (!hasResendKey) {
+      logger.warn("RESEND_API_KEY is missing or empty - email functionality may not work");
+    }
   }
 
   async init() {
