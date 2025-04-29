@@ -17,7 +17,8 @@
     "test:coverage": "vitest run --coverage",
     "cf-typegen": "wrangler types",
     "update-deps": "pnpm update --latest",
-    "prepare": "husky install"
+    "prepare": "husky install",
+    "trace":"pnpm exec wrangler tail"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^0.0.3",
