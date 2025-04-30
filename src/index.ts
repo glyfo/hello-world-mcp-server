@@ -1,7 +1,7 @@
-// Make sure to export the Durable Object class as wellimport { McpAgent } from "agents/mcp";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
+// Make sure to export the Durable Object class as wellimport { z } from "zod";
 import { Hono } from "hono";
+import { McpAgent } from "agents/mcp";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Resend } from "resend";
 
 // Environment interface with necessary bindings
@@ -48,6 +48,12 @@ export class MyMCP extends McpAgent<Bindings, State, Props> {
   
   constructor(state: DurableObjectState, env: Bindings, ctx: ExecutionContext) {
     super(state, env, ctx);
+    
+    // Register the props handler to receive props from the main worker
+    this.onProps = (props) => {
+      this.props = props;
+      logger.info("Received props in MCP agent", { props });
+    };
     
     // More robust check for API key existence
     const hasResendKey = typeof env.RESEND_API_KEY === 'string' && env.RESEND_API_KEY.trim() !== '';
@@ -244,14 +250,13 @@ app.all("/sse*", async (c) => {
       bearerToken: authHeader,
     };
     
-    // Pass the request to the Durable Object with props
+    // Pass the request to the Durable Object with the correct options
     return await stub.fetch(req.url, {
       method: req.method,
       headers: req.headers,
       body: req.body,
-      // We need to use the correct property for passing props
+      // Use cf property for custom data as this is supported in Cloudflare
       cf: {
-        // Pass props via custom Cloudflare property
         mcpProps: props
       }
     });
